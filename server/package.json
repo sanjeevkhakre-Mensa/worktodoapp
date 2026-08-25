@@ -1,0 +1,13 @@
+{
+  "name": "workflow-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "WorkFlow shared task manager backend — one process serves the API and the frontend",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
