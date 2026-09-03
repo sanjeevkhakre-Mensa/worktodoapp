@@ -251,7 +251,39 @@ function startPolling() {
   }, 8000);
 }
 
+function showOpenedAsFileWarning() {
+  const root = document.getElementById("app");
+  root.innerHTML = `
+    <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px">
+      <div class="card" style="width:100%;max-width:420px;box-shadow:var(--shadow-lg)">
+        <div class="card-body pad">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+            <div class="brand-mark" style="width:36px;height:36px;border-radius:10px;background:var(--red);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:16px">!</div>
+            <div style="font-weight:700;font-size:18px;letter-spacing:-0.01em">This file was opened directly</div>
+          </div>
+          <p style="font-size:13px;color:var(--ink);line-height:1.6;margin-bottom:14px">
+            You opened <code style="background:var(--surface-2);padding:1px 5px;border-radius:4px">index.html</code>
+            straight from a folder (the address bar starts with <code style="background:var(--surface-2);padding:1px 5px;border-radius:4px">file://</code>).
+            This app needs its server running and must be opened through a real address instead.
+          </p>
+          <p style="font-size:13px;color:var(--ink);line-height:1.6;margin-bottom:6px"><strong>To use it locally:</strong></p>
+          <ol style="font-size:12.5px;color:var(--ink-muted);line-height:1.8;margin:0 0 14px;padding-left:18px">
+            <li>Double-click <code style="background:var(--surface-2);padding:1px 5px;border-radius:4px">server/start.bat</code> and leave that window open</li>
+            <li>In your browser, go to <code style="background:var(--surface-2);padding:1px 5px;border-radius:4px">http://localhost:4100</code></li>
+          </ol>
+          <p style="font-size:13px;color:var(--ink);line-height:1.6;margin-bottom:6px"><strong>Deployed on Render (or similar)?</strong></p>
+          <p style="font-size:12.5px;color:var(--ink-muted);line-height:1.6">Open the <code style="background:var(--surface-2);padding:1px 5px;border-radius:4px">https://...onrender.com</code> address your host gave you instead of this file.</p>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 window.addEventListener("DOMContentLoaded", () => {
+  if (window.location.protocol === "file:") {
+    showOpenedAsFileWarning();
+    return;
+  }
   if (getToken()) {
     boot();
   } else {
