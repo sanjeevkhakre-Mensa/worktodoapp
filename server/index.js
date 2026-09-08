@@ -135,6 +135,9 @@ app.post("/api/tasks", auth, (req, res) => {
   TASK_FIELDS.forEach((f) => {
     if (body[f] !== undefined) task[f] = body[f];
   });
+  // sourceEmailId is a dedup key set by the email-import flow only — not a user-editable
+  // field, so it's handled separately from the general TASK_FIELDS whitelist.
+  if (body.sourceEmailId) task.sourceEmailId = body.sourceEmailId;
   db.tasks.unshift(task);
   save();
   res.status(201).json(task);
