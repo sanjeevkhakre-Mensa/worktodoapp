@@ -1,7 +1,14 @@
 /* ============================================================
-   WorkFlow — API client (talks to server/index.js)
+   WorkFlow — local persistence engine (browser localStorage only)
+
+   This app used to talk to a Node backend so a team could share one
+   task list. It's now a personal, single-browser tool (like WorkToDo)
+   so it can run as static files on GitHub Pages — everything lives in
+   this browser's localStorage instead, and nothing syncs across
+   devices or people.
    ============================================================ */
 
+const DB_KEY = "workflow_db_v1";
 const TOKEN_KEY = "workflow_auth_token";
 
 function getToken() {
@@ -14,49 +21,228 @@ function clearToken() {
   localStorage.removeItem(TOKEN_KEY);
 }
 
-async function apiCall(method, path, body) {
-  const headers = { "Content-Type": "application/json" };
-  const token = getToken();
-  if (token) headers.Authorization = "Bearer " + token;
+let nextIdCounter = 1;
+function genId(prefix) {
+  return (prefix || "id") + "_" + Date.now().toString(36) + "_" + (nextIdCounter++).toString(36);
+}
 
-  let res;
-  try {
-    res = await fetch(path, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
-  } catch (e) {
-    throw new Error("Can't reach the server. Check your connection and try again.");
-  }
+const SEED_USERS = [
+  { id: "u1", username: "sanjeev", name: "Sanjeev Khakre", role: "Sales Manager", color: "#2563eb" },
+  { id: "u2", username: "priya", name: "Priya Nair", role: "Business Analyst", color: "#7c3aed" },
+  { id: "u3", username: "rahul", name: "Rahul Verma", role: "Regional Sales Officer", color: "#16a34a" },
+  { id: "u4", username: "ananya", name: "Ananya Iyer", role: "Marketing Executive", color: "#d97706" },
+  { id: "u5", username: "karan", name: "Karan Mehta", role: "Operations Lead", color: "#dc2626" },
+  { id: "u6", username: "divya", name: "Divya Shah", role: "Distributor Coordinator", color: "#0891b2" },
+];
 
-  if (res.status === 401) {
-    clearToken();
-    showLoginScreen("Your session expired — please log in again.");
-    throw new Error("Session expired");
-  }
-  if (res.status === 204) return null;
+function isoDateOffset(offsetDays) {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + offsetDays);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
 
-  let data = null;
-  try {
-    data = await res.json();
-  } catch (e) {
-    /* no body */
+function seedTasks() {
+  const now = new Date().toISOString();
+  const t = (overrides) =>
+    Object.assign(
+      {
+        id: genId("t"),
+        description: "",
+        dueTime: "",
+        endTime: "",
+        priority: "Medium",
+        status: "Todo",
+        project: "p1",
+        assignee: "u1",
+        createdBy: "u1",
+        reminder: false,
+        recurring: "None",
+        attachments: [],
+        checklist: [],
+        comments: [],
+        activity: [{ text: "Task created", date: now }],
+        createdAt: now,
+      },
+      overrides
+    );
+
+  return [
+    t({
+      title: "Prepare Monthly Sales Report",
+      description: "Compile GMV, growth %, and channel-wise breakup for the sales review deck.",
+      dueDate: isoDateOffset(0),
+      dueTime: "09:00",
+      endTime: "10:30",
+      priority: "High",
+      status: "In Progress",
+      project: "p1",
+      assignee: "u1",
+      checklist: [
+        { id: "c1", text: "Pull GMV data from dispatch tracker", done: true },
+        { id: "c2", text: "Build channel-wise summary", done: true },
+        { id: "c3", text: "Review with RSM", done: false },
+      ],
+    }),
+    t({
+      title: "Review Distributor Performance",
+      description: "Quarterly review of top 10 distributors against target vs achievement.",
+      dueDate: isoDateOffset(0),
+      dueTime: "11:00",
+      endTime: "12:00",
+      priority: "Medium",
+      status: "Completed",
+      project: "p2",
+      assignee: "u3",
+    }),
+    t({
+      title: "Power BI Dashboard Update",
+      description: "Refresh the Primary Sales dashboard with the new Zone derivation logic.",
+      dueDate: isoDateOffset(0),
+      dueTime: "14:00",
+      endTime: "15:30",
+      priority: "Medium",
+      status: "Pending",
+      project: "p3",
+      assignee: "u1",
+    }),
+    t({
+      title: "New Distributor Onboarding — Vikram SE",
+      description: "Complete KYC, credit terms and system mapping for the new distributor.",
+      dueDate: isoDateOffset(0),
+      dueTime: "16:00",
+      priority: "High",
+      status: "Todo",
+      project: "p6",
+      assignee: "u6",
+    }),
+    t({
+      title: "PJP Fix — Zone C route corrections",
+      dueDate: isoDateOffset(-1),
+      dueTime: "10:00",
+      priority: "Urgent",
+      status: "Todo",
+      project: "p6",
+      assignee: "u3",
+    }),
+    t({
+      title: "Fazzli Return — reconcile short shipment",
+      dueDate: isoDateOffset(-2),
+      priority: "High",
+      status: "Todo",
+      project: "p5",
+      assignee: "u5",
+    }),
+    t({
+      title: "Flavor-wise last 5 month GMV — Supplement channel",
+      dueDate: isoDateOffset(-1),
+      priority: "Medium",
+      status: "Todo",
+      project: "p1",
+      assignee: "u2",
+    }),
+    t({
+      title: "R&R Automation — reward calc script",
+      dueDate: isoDateOffset(3),
+      priority: "Medium",
+      status: "Todo",
+      project: "p5",
+      assignee: "u5",
+    }),
+    t({
+      title: "Consolidate all reports into one Google Sheet",
+      dueDate: isoDateOffset(2),
+      priority: "Low",
+      status: "Todo",
+      project: "p3",
+      assignee: "u2",
+    }),
+    t({
+      title: "DSR Updation — field team compliance",
+      dueDate: isoDateOffset(1),
+      priority: "Medium",
+      status: "In Progress",
+      project: "p2",
+      assignee: "u3",
+    }),
+    t({
+      title: "Expense Tracker — closing",
+      dueDate: isoDateOffset(5),
+      priority: "Medium",
+      status: "Todo",
+      project: "p5",
+      assignee: "u1",
+    }),
+    t({
+      title: "Outlet Correction — duplicate outlet IDs",
+      dueDate: isoDateOffset(4),
+      priority: "Low",
+      status: "Todo",
+      project: "p6",
+      assignee: "u6",
+    }),
+    t({
+      title: "Product Image Update — new SKU catalogue",
+      dueDate: isoDateOffset(6),
+      priority: "Low",
+      status: "Todo",
+      project: "p4",
+      assignee: "u4",
+    }),
+    t({
+      title: "Team Sync — weekly standup",
+      dueDate: isoDateOffset(0),
+      dueTime: "18:00",
+      priority: "Low",
+      status: "Todo",
+      project: "p2",
+      assignee: "u1",
+      recurring: "Weekly",
+    }),
+  ];
+}
+
+function freshDb() {
+  const users = SEED_USERS.map((u) => Object.assign({ custom: false, weeklyCapacityHours: 40 }, u));
+  return { users, tasks: seedTasks(), bookings: [] };
+}
+
+function loadDb() {
+  const raw = localStorage.getItem(DB_KEY);
+  if (raw) {
+    const db = JSON.parse(raw);
+    db.bookings = db.bookings || [];
+    db.users.forEach((u) => {
+      if (u.weeklyCapacityHours === undefined) u.weeklyCapacityHours = 40;
+    });
+    return db;
   }
-  if (!res.ok) throw new Error((data && data.error) || "Request failed");
-  return data;
+  const db = freshDb();
+  saveDb(db);
+  return db;
+}
+
+function saveDb(db) {
+  localStorage.setItem(DB_KEY, JSON.stringify(db));
+}
+
+function publicUser(u) {
+  return {
+    id: u.id, username: u.username, name: u.name, role: u.role, color: u.color, custom: !!u.custom,
+    weeklyCapacityHours: u.weeklyCapacityHours === undefined ? 40 : u.weeklyCapacityHours,
+  };
 }
 
 async function apiGetLoginUsers() {
-  const res = await fetch("/api/login-users");
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || "Couldn't load the team list");
-  return data.users;
+  return loadDb().users.map(publicUser);
 }
 
 async function apiLogin(userId) {
-  const res = await fetch("/api/login", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ userId }),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || "Login failed");
-  return data;
+  const db = loadDb();
+  const user = db.users.find((u) => u.id === userId);
+  if (!user) throw new Error("Unknown user");
+  return { token: user.id, user: publicUser(user) };
 }
