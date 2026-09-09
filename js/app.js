@@ -11,11 +11,12 @@ const ROUTES = {
   completed: { render: () => renderTasksPage("completed"), label: "Completed", icon: "completed" },
   projects: { render: renderProjectsPage, label: "Projects", icon: "projects" },
   team: { render: renderTeamPage, label: "Team Tasks", icon: "team" },
+  capacity: { render: renderCapacityPage, label: "Capacity", icon: "capacity" },
   reports: { render: renderReportsPage, label: "Reports", icon: "reports" },
   settings: { render: renderSettingsPage, label: "Settings", icon: "settings" },
 };
 
-const NAV_MAIN = ["dashboard", "tasks", "today", "upcoming", "calendar", "completed", "projects", "team", "reports"];
+const NAV_MAIN = ["dashboard", "tasks", "today", "upcoming", "calendar", "completed", "projects", "team", "capacity", "reports"];
 const NAV_MOBILE = ["dashboard", "tasks", "calendar", "team", "reports"];
 
 let currentRoute = "dashboard";

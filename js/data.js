@@ -90,6 +90,36 @@ const Store = {
     await apiCall("DELETE", `/api/users/${id}`);
     await this.refreshState();
   },
+
+  async updateUserCapacity(id, weeklyCapacityHours) {
+    await apiCall("PUT", `/api/users/${id}`, { weeklyCapacityHours });
+    await this.refreshState();
+  },
+
+  getBookings() {
+    return this.state.bookings || [];
+  },
+
+  getBooking(id) {
+    return this.getBookings().find((b) => b.id === id);
+  },
+
+  async addBooking(patch) {
+    const created = await apiCall("POST", "/api/bookings", patch);
+    await this.refreshState();
+    return created;
+  },
+
+  async updateBooking(id, patch) {
+    const updated = await apiCall("PUT", `/api/bookings/${id}`, patch);
+    await this.refreshState();
+    return updated;
+  },
+
+  async deleteBooking(id) {
+    await apiCall("DELETE", `/api/bookings/${id}`);
+    await this.refreshState();
+  },
 };
 
 /* ---------- Derived helpers ---------- */

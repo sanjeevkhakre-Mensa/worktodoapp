@@ -25,10 +25,16 @@ function loadDb() {
     const db = JSON.parse(fs.readFileSync(DB_PATH, "utf8"));
     // Older installs seeded a passwordHash per user from before login was simplified
     // to "pick your name" — harmless to leave in place, just no longer read anywhere.
+    // Same idea for two later additions — fill in defaults so an existing db.json from
+    // before this feature existed doesn't need a manual migration step.
+    db.bookings = db.bookings || [];
+    db.users.forEach((u) => {
+      if (u.weeklyCapacityHours === undefined) u.weeklyCapacityHours = 40;
+    });
     return db;
   }
-  const users = SEED_USERS.map((u) => Object.assign({ custom: false }, u));
-  const db = { users, tasks: seedTasks(() => genId("t")), sessions: {} };
+  const users = SEED_USERS.map((u) => Object.assign({ custom: false, weeklyCapacityHours: 40 }, u));
+  const db = { users, tasks: seedTasks(() => genId("t")), sessions: {}, bookings: [] };
   saveDbTo(db);
   return db;
 }
@@ -44,7 +50,10 @@ function save() {
 }
 
 function publicUser(u) {
-  return { id: u.id, username: u.username, name: u.name, role: u.role, color: u.color, custom: !!u.custom };
+  return {
+    id: u.id, username: u.username, name: u.name, role: u.role, color: u.color, custom: !!u.custom,
+    weeklyCapacityHours: u.weeklyCapacityHours === undefined ? 40 : u.weeklyCapacityHours,
+  };
 }
 
 const app = express();
@@ -101,6 +110,7 @@ app.get("/api/state", auth, (req, res) => {
     me: publicUser(req.user),
     users: db.users.map(publicUser),
     tasks: db.tasks,
+    bookings: db.bookings,
   });
 });
 
@@ -243,9 +253,17 @@ app.post("/api/users", auth, (req, res) => {
 app.put("/api/users/:id", auth, (req, res) => {
   const user = db.users.find((u) => u.id === req.params.id);
   if (!user) return res.status(404).json({ error: "User not found" });
-  const name = (req.body && req.body.name || "").trim();
-  if (!name) return res.status(400).json({ error: "Name cannot be empty" });
-  user.name = name;
+  const body = req.body || {};
+  if (body.name !== undefined) {
+    const name = String(body.name).trim();
+    if (!name) return res.status(400).json({ error: "Name cannot be empty" });
+    user.name = name;
+  }
+  if (body.weeklyCapacityHours !== undefined) {
+    const hours = Number(body.weeklyCapacityHours);
+    if (!Number.isFinite(hours) || hours < 0) return res.status(400).json({ error: "Weekly capacity must be a positive number" });
+    user.weeklyCapacityHours = hours;
+  }
   save();
   res.json(publicUser(user));
 });
@@ -259,6 +277,66 @@ app.delete("/api/users/:id", auth, (req, res) => {
   Object.keys(db.sessions).forEach((token) => {
     if (db.sessions[token] === req.params.id) delete db.sessions[token];
   });
+  save();
+  res.status(204).end();
+});
+
+// ---------- Bookings (weekly capacity planning) ----------
+// A booking is a chunk of one person's time against a project: how many hours/day,
+// from one date to another. Remaining capacity is derived client-side from these plus
+// each user's weeklyCapacityHours — nothing pre-aggregated or cached server-side.
+const BOOKING_FIELDS = ["userId", "projectId", "title", "startDate", "endDate", "hoursPerDay"];
+
+function findBookingOr404(req, res) {
+  const booking = db.bookings.find((b) => b.id === req.params.id);
+  if (!booking) {
+    res.status(404).json({ error: "Booking not found" });
+    return null;
+  }
+  return booking;
+}
+
+app.post("/api/bookings", auth, (req, res) => {
+  const body = req.body || {};
+  if (!body.userId) return res.status(400).json({ error: "userId is required" });
+  if (!body.title || !String(body.title).trim()) return res.status(400).json({ error: "Title is required" });
+  if (!body.startDate || !body.endDate) return res.status(400).json({ error: "Start and end date are required" });
+  if (body.endDate < body.startDate) return res.status(400).json({ error: "End date can't be before start date" });
+  const hoursPerDay = Number(body.hoursPerDay);
+  if (!Number.isFinite(hoursPerDay) || hoursPerDay <= 0) return res.status(400).json({ error: "Hours/day must be a positive number" });
+
+  const booking = {
+    id: genId("bk"),
+    userId: body.userId,
+    projectId: body.projectId || null,
+    title: String(body.title).trim(),
+    startDate: body.startDate,
+    endDate: body.endDate,
+    hoursPerDay,
+    createdBy: req.user.id,
+    createdAt: new Date().toISOString(),
+  };
+  db.bookings.push(booking);
+  save();
+  res.status(201).json(booking);
+});
+
+app.put("/api/bookings/:id", auth, (req, res) => {
+  const booking = findBookingOr404(req, res);
+  if (!booking) return;
+  const body = req.body || {};
+  BOOKING_FIELDS.forEach((f) => {
+    if (body[f] !== undefined) booking[f] = body[f];
+  });
+  if (booking.endDate < booking.startDate) return res.status(400).json({ error: "End date can't be before start date" });
+  save();
+  res.json(booking);
+});
+
+app.delete("/api/bookings/:id", auth, (req, res) => {
+  const exists = db.bookings.some((b) => b.id === req.params.id);
+  if (!exists) return res.status(404).json({ error: "Booking not found" });
+  db.bookings = db.bookings.filter((b) => b.id !== req.params.id);
   save();
   res.status(204).end();
 });
