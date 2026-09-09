@@ -59,6 +59,88 @@ function publicUser(u) {
 const app = express();
 app.use(express.json());
 
+// ---------- Site gate ----------
+// A single shared password guarding the whole app, separate from the per-user "pick your
+// name" login. Only active when SITE_PASSWORD is set (e.g. on the public Render deploy);
+// local/LAN use is untouched. Tokens live in memory only — a restart signs everyone out.
+const SITE_PASSWORD = process.env.SITE_PASSWORD || "";
+const siteTokens = new Set();
+const SITE_COOKIE = "wf_site_auth";
+
+function parseCookies(req) {
+  const header = req.headers.cookie || "";
+  const out = {};
+  header.split(";").forEach((pair) => {
+    const idx = pair.indexOf("=");
+    if (idx === -1) return;
+    const k = pair.slice(0, idx).trim();
+    if (k) out[k] = decodeURIComponent(pair.slice(idx + 1).trim());
+  });
+  return out;
+}
+
+const SITE_GATE_HTML = `<!doctype html>
+<html><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>WorkFlow — Locked</title>
+<style>
+  body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0f172a;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;}
+  .box{background:#1e293b;padding:32px;border-radius:12px;width:100%;max-width:320px;box-shadow:0 10px 30px rgba(0,0,0,.3);}
+  h1{color:#f1f5f9;font-size:18px;margin:0 0 16px;}
+  input{width:100%;box-sizing:border-box;padding:10px 12px;border-radius:8px;border:1px solid #334155;background:#0f172a;color:#f1f5f9;font-size:14px;margin-bottom:12px;}
+  button{width:100%;padding:10px 12px;border-radius:8px;border:none;background:#2563eb;color:#fff;font-size:14px;font-weight:600;cursor:pointer;}
+  button:hover{background:#1d4ed8;}
+  p{color:#f87171;font-size:13px;margin:0 0 12px;min-height:16px;}
+</style></head>
+<body>
+  <form class="box" id="f">
+    <h1>WorkFlow is locked</h1>
+    <p id="err"></p>
+    <input type="password" id="pw" placeholder="Password" autofocus />
+    <button type="submit">Unlock</button>
+  </form>
+  <script>
+    document.getElementById("f").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const err = document.getElementById("err");
+      err.textContent = "";
+      try {
+        const res = await fetch("/api/site-unlock", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ password: document.getElementById("pw").value }),
+        });
+        if (!res.ok) { err.textContent = "Wrong password"; return; }
+        window.location.reload();
+      } catch (e) { err.textContent = "Something went wrong"; }
+    });
+  </script>
+</body></html>`;
+
+function siteGate(req, res, next) {
+  if (!SITE_PASSWORD) return next();
+  if (req.path === "/api/site-unlock") return next();
+  const token = parseCookies(req)[SITE_COOKIE];
+  if (token && siteTokens.has(token)) return next();
+  if (req.path.startsWith("/api/")) return res.status(401).json({ error: "Site locked" });
+  res.status(401).send(SITE_GATE_HTML);
+}
+
+app.use(siteGate);
+
+app.post("/api/site-unlock", (req, res) => {
+  if (!SITE_PASSWORD) return res.json({ ok: true });
+  const { password } = req.body || {};
+  if (password !== SITE_PASSWORD) return res.status(401).json({ error: "Wrong password" });
+  const token = crypto.randomBytes(24).toString("hex");
+  siteTokens.add(token);
+  const isHttps = req.secure || req.headers["x-forwarded-proto"] === "https";
+  res.setHeader(
+    "Set-Cookie",
+    `${SITE_COOKIE}=${token}; Path=/; Max-Age=${60 * 60 * 24 * 30}; HttpOnly; SameSite=Lax${isHttps ? "; Secure" : ""}`
+  );
+  res.json({ ok: true });
+});
+
 function auth(req, res, next) {
   const header = req.headers.authorization || "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : null;
